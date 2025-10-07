@@ -143,6 +143,7 @@ class Writer:
 
     def __init__(self, args, audio, height, width, video_save_path, fps):
         out_width, out_height = int(width * args.outscale), int(height * args.outscale)
+        self.input = args.input
         if min(out_height, out_width) > 2160:
             print('You are generating video that is larger than 4K, which will be very slow due to IO speed.',
                   'We highly recommend to decrease the outscale(aka, -s).')
@@ -173,7 +174,7 @@ class Writer:
 
     def write_frame_idx(self, frame, idx):
         frame = frame.astype(np.uint8).tobytes()
-        img_path = os.path.join(args.input, f"frame{idx+1:08d}.png")
+        img_path = os.path.join(self.input, f"frame{idx+1:08d}.png")
         cv2.imwrite(img_path, frame)
 
     def close(self):
