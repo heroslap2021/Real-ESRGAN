@@ -11,6 +11,7 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils.download_util import load_file_from_url
 from os import path as osp
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 from realesrgan import RealESRGANer
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
@@ -67,7 +68,7 @@ class Reader:
             video_path = get_sub_video(args, total_workers, worker_idx)
             self.stream_reader = (
                 ffmpeg.input(video_path).output('pipe:', format='rawvideo', pix_fmt='bgr24',
-                                                loglevel='error').run_async(
+                                                loglevel='error').global_args('-hwaccel', 'cuda').run_async(
                                                     pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
             meta = get_video_meta_info(video_path)
             self.width = meta['width']
@@ -128,6 +129,10 @@ class Reader:
         else:
             return self.get_frame_from_list()
 
+    def get_frame_idx(self, idx):
+        img = cv2.imread(self.paths[idx])
+        return img
+
     def close(self):
         if self.input_type.startswith('video'):
             self.stream_reader.stdin.close()
@@ -141,6 +146,7 @@ class Writer:
         if min(out_height, out_width) > 2160:
             print('You are generating video that is larger than 4K, which will be very slow due to IO speed.',
                   'We highly recommend to decrease the outscale(aka, -s).')
+        
 
         if audio is not None:
             self.stream_writer = (
@@ -149,21 +155,26 @@ class Writer:
                                  audio,
                                  video_save_path,
                                  pix_fmt='yuv420p',
-                                 vcodec='libx264',
+                                 vcodec='h264_nvenc',
                                  loglevel='error',
-                                 acodec='copy').overwrite_output().run_async(
+                                 acodec='copy').overwrite_output().global_args('-hwaccel', 'cuda').run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
         else:
             self.stream_writer = (
                 ffmpeg.input('pipe:', format='rawvideo', pix_fmt='bgr24', s=f'{out_width}x{out_height}',
                              framerate=fps).output(
-                                 video_save_path, pix_fmt='yuv420p', vcodec='libx264',
-                                 loglevel='error').overwrite_output().run_async(
+                                 video_save_path, pix_fmt='yuv420p', vcodec='h264_nvenc',
+                                 loglevel='error').overwrite_output().global_args('-hwaccel', 'cuda').run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
 
     def write_frame(self, frame):
         frame = frame.astype(np.uint8).tobytes()
         self.stream_writer.stdin.write(frame)
+
+    def write_frame_idx(self, frame, idx):
+        frame = frame.astype(np.uint8).tobytes()
+        img_path = os.path.join(args.input, f"frame{idx+1:08d}.png")
+        cv2.imwrite(img_path, frame)
 
     def close(self):
         self.stream_writer.stdin.close()
@@ -257,24 +268,45 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
     writer = Writer(args, audio, height, width, video_save_path, fps)
 
     pbar = tqdm(total=len(reader), unit='frame', desc='inference')
-    while True:
-        img = reader.get_frame()
-        if img is None:
-            break
-
-        try:
-            if args.face_enhance:
-                _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
+    if args.threadpool_mode:
+        while True:
+            img = reader.get_frame()
+            if img is None:
+                break
+    
+            try:
+                if args.face_enhance:
+                    _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
+                else:
+                    output, _ = upsampler.enhance(img, outscale=args.outscale)
+            except RuntimeError as error:
+                print('Error', error)
+                print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
             else:
-                output, _ = upsampler.enhance(img, outscale=args.outscale)
-        except RuntimeError as error:
-            print('Error', error)
-            print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
-        else:
-            writer.write_frame(output)
+                writer.write_frame(output)
+    
+            torch.cuda.synchronize(device)
+            pbar.update(1)
+    else:
+        def upsampler_idx(idx):
+            ## read by index
+            img = reader.get_frame_idx(idx)
+            output, _ = upsampler.enhance(img, outscale=args.outscale)
+            ## write ke img <replace aja>
+            writer.write_frame_idx(output, idx)
 
-        torch.cuda.synchronize(device)
-        pbar.update(1)
+        ## versi threadpool
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            for _ in executor.map(upsampler_idx, range(len(reader))):
+                pbar.update(1)
+
+        ## combine imgs jadi video
+        for rlr in range(len(reader)):
+            img = reader.get_frame()
+            if img is None:
+                break
+            else:
+                writer.write_frame(img)
 
     reader.close()
     writer.close()
@@ -363,6 +395,8 @@ def main():
     parser.add_argument('--extract_frame_first', action='store_true')
     parser.add_argument('--num_process_per_gpu', type=int, default=1)
 
+    parser.add_argument('--threadpool_mode', action='store_true', help='Enable threadpool mode')
+
     parser.add_argument(
         '--alpha_upsampler',
         type=str,
@@ -390,6 +424,10 @@ def main():
 
     if args.extract_frame_first and not is_video:
         args.extract_frame_first = False
+
+    if args.threadpool_mode:
+        args.extract_frame_first = True
+        args.num_process_per_gpu = 1
 
     run(args)
 
