@@ -320,7 +320,7 @@ def run(args):
     if args.extract_frame_first:
         tmp_frames_folder = osp.join(args.output, f'{args.video_name}_inp_tmp_frames')
         os.makedirs(tmp_frames_folder, exist_ok=True)
-        os.system(f'ffmpeg -loglevel error -hide_banner -i {args.input} -qscale:v 1 -qmin 1 -qmax 1 -vsync 0  {tmp_frames_folder}/frame%08d.png')
+        os.system(f'ffmpeg -hwaccel cuda -loglevel error -hide_banner -i {args.input} -qscale:v 1 -qmin 1 -qmax 1 -vsync 0 {tmp_frames_folder}/frame%08d.png')
         args.input = tmp_frames_folder
 
     num_gpus = torch.cuda.device_count()
