@@ -296,7 +296,7 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
             writer.write_frame_idx(output, idx)
 
         ## versi threadpool
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             for _ in executor.map(upsampler_idx, range(len(reader))):
                 pbar.update(1)
 
@@ -319,7 +319,7 @@ def run(args):
     if args.extract_frame_first:
         tmp_frames_folder = osp.join(args.output, f'{args.video_name}_inp_tmp_frames')
         os.makedirs(tmp_frames_folder, exist_ok=True)
-        os.system(f'ffmpeg -i {args.input} -qscale:v 1 -qmin 1 -qmax 1 -vsync 0  {tmp_frames_folder}/frame%08d.png')
+        os.system(f'ffmpeg -loglevel error -hide_banner -i {args.input} -qscale:v 1 -qmin 1 -qmax 1 -vsync 0  {tmp_frames_folder}/frame%08d.png')
         args.input = tmp_frames_folder
 
     num_gpus = torch.cuda.device_count()
