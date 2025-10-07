@@ -138,7 +138,7 @@ class Writer:
 
     def __init__(self, args, audio, height, width, video_save_path, fps):
         out_width, out_height = int(width * args.outscale), int(height * args.outscale)
-        if out_height > 2160:
+        if min(out_height, out_width) > 2160:
             print('You are generating video that is larger than 4K, which will be very slow due to IO speed.',
                   'We highly recommend to decrease the outscale(aka, -s).')
 
