@@ -268,7 +268,7 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
     writer = Writer(args, audio, height, width, video_save_path, fps)
 
     pbar = tqdm(total=len(reader), unit='frame', desc='inference')
-    if args.threadpool_mode:
+    if not args.threadpool_mode:
         while True:
             img = reader.get_frame()
             if img is None:
