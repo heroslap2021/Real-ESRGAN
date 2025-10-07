@@ -173,7 +173,7 @@ class Writer:
         self.stream_writer.stdin.write(frame)
 
     def write_frame_idx(self, frame, idx):
-        frame = frame.astype(np.uint8).tobytes()
+        frame = frame.astype(np.uint8)
         img_path = os.path.join(self.input, f"frame{idx+1:08d}.png")
         cv2.imwrite(img_path, frame)
 
