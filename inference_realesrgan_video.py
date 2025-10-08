@@ -297,7 +297,7 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
             writer.write_frame_idx(output, idx)
 
         ## versi threadpool
-        bor = 16 if args.model_name == 'realesr-general-x4v3' else 2
+        bor = 28 if args.model_name == 'realesr-general-x4v3' else 2
         with ThreadPoolExecutor(max_workers=bor) as executor:
             for _ in executor.map(upsampler_idx, range(len(reader))):
                 pbar.update(1)
